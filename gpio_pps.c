@@ -1,20 +1,23 @@
-/* 
-** Look at KASSERT(true, ("message"))
-*/
+/* ----------------------------------------------------------------------------
+ * Copyright (c) Bob Ballance 2015
+ * 
+ * gpio_pps.c -			Cr
+ * 
+ * gpio interrupt handler for PPS signals
+ * 
+ * ----------------------------------------------------------------------------
+ */
 
 #include <sys/cdefs.h>
-
 #include "opt_platform.h"
 
 #include <sys/param.h>
-
-/* Temporary hack? */
 
 /* Clang-style message 
 #pragma message "Overriding the FREEBSD Version Number is a Bad Idea!"
 
 #undef __FreeBSD_version
-#define __FreeBSD_version 1100075	/* Master, propagated to newvers */
+#define __FreeBSD_version 1100075	
 */
 
 #include <sys/systm.h>
@@ -96,25 +99,87 @@ gpio_pps_modevent(module_t mod __unused, int event, void* arg __unused)
 static void
 gpio_pps_identify(driver_t *driver, device_t bus)
 {
-  device_t dev;
-  
+  /*   device_t dev; */
+  phandle_t node, root, child;
   device_printf(bus, "gpio_pps_identify called\n");
-  dev = device_find_child(bus, GPIOPPS_NAME, -1);
-  if (!dev) {
-    dev = BUS_ADD_CHILD(bus, 0, GPIOPPS_NAME, -1);
-    /*    KASSERT(dev, ("Unable to add gpio_pps to bus")); */
-    if (dev) {
-      device_printf(dev, "gpio_pps_identify: bus added\n");
+  
+  root = OF_finddevice("/");
+  if (root == 0)
+    return;
+
+  for (node = OF_child(root); node != 0; node = OF_peer(node)) {
+
+    if (!fdt_is_compatible_strict(node, "gpio-pps"))
+      continue;
+
+    /* Traverse the 'gpio-pps' node and add its children. */
+    for (child = OF_child(node); child != 0; child = OF_peer(child)) {
+      if (!OF_hasprop(child, "gpios"))
+        continue;
+      if (ofw_gpiobus_add_fdt_child(bus, driver->name, child) == NULL)
+        printf("gpio_pps_identify: FDT child added\n");
+        continue;
     }
   }
+
+  /*
+    dev = device_find_child(bus, GPIOPPS_NAME, -1);
+    if (!dev) {
+    dev = BUS_ADD_CHILD(bus, 0, GPIOPPS_NAME, -1);
+    if (dev) {
+    }
+    
+  */
+  device_printf(bus, "gpio_pps_identify: bus added\n");
+  
 }
 
 static int
 gpio_pps_probe(device_t dev)
 {
-	device_set_desc(dev, "GPIO pps");
-        device_printf( dev, "gpio_pps_probe completes\n");  
-  	return (0);
+	int match;
+	phandle_t node;
+	char *compat;
+
+	/*
+	 * We can match against our own node compatible string and also against
+	 * our parent node compatible string.  The first is normally used to
+	 * describe leds on a gpiobus and the later when there is a common node
+	 * compatible with 'gpio-leds' which is used to concentrate all the
+	 * leds nodes on the dts.
+	 */
+	match = 0;
+	if (ofw_bus_is_compatible(dev, "gpio-pps"))
+		match = 1;
+
+	if (match == 0) {
+          if ((node = ofw_bus_get_node(dev)) == -1) {
+            device_printf(dev, "probe: no node\n");
+            return (ENXIO);
+          }
+          if ((node = OF_parent(node)) == -1) {
+            device_printf(dev, "probe: no parent node\n");            
+            return (ENXIO);
+          }
+          if (OF_getprop_alloc(node, "compatible", 1,
+                               (void **)&compat) == -1) {
+            device_printf(dev, "probe: property\n");            
+            return (ENXIO);
+          }
+          
+          if (strcasecmp(compat, "gpio-pps") == 0)
+            match = 1;
+          free(compat, M_OFWPROP);
+	}
+        
+	if (match == 0) {
+          device_printf(dev, "probe: no match\n");
+          return (ENXIO);
+        }
+
+	device_set_desc(dev, "GPIO PPS");
+        device_printf(dev, "probe returns OK\n");
+	return (0);
 }
 
 static int pps_count = 0;
@@ -135,7 +200,10 @@ gpio_pps_attach(device_t dev)
 	sc->sc_dev = dev;
 	sc->sc_busdev = device_get_parent(dev);
         sc->sc_irq_rid = 0;
-        sc->sc_gpio_intr = devclass_get_device(devclass_find("gpio"), 0);
+
+        /*        sc->sc_gpio_intr = devclass_get_device(devclass_find("gpio"), 0); */
+        sc->sc_gpio_intr = sc->sc_dev;
+        device_printf(dev, "Using  MOI as the busdev\n");
 
         GPIOPPS_LOCK_INIT(sc);            
 
@@ -149,6 +217,7 @@ gpio_pps_attach(device_t dev)
 
         GPIOPPS_LOCK(sc);
 
+        /* Worked with gpio_intr. Try with busdev */
         if (BUS_CONFIG_INTR(sc->sc_gpio_intr, GPIOPPS_PIN, INTR_TRIGGER_EDGE, INTR_POLARITY_HIGH)) {
           GPIOPPS_UNLOCK(sc);
           device_printf(dev, "Unable to configure the interrupt...\n");
@@ -179,9 +248,7 @@ gpio_pps_attach(device_t dev)
           return ENXIO;
         }
 
-
         error = bus_setup_intr(sc->sc_gpio_intr, sc->sc_intr_resource, INTR_TYPE_CLK, NULL,  gpio_pps_intr, sc, &(sc->sc_intr_cookie));
-
         if (error) {
           bus_release_resource(sc->sc_gpio_intr, SYS_RES_IRQ, sc->sc_irq_rid, sc->sc_intr_resource);
           device_printf(dev, "Unable to hook interrupt handler\n");
