@@ -60,12 +60,10 @@ struct gpio_pps_softc
   struct mtx	sc_mtx;
   struct resource * sc_intr_resource;	/* interrupt resource -- needed to specify pin */
   int sc_irq_rid;
-
-
-  device_t      sc_gpio_intr;
   void *sc_intr_cookie;		/* interrupt registration cookie */
   
   struct pps_state sc_pps;        /* sio.c needs a single pps_state */
+
   /* struct sysctl_oid	*sc_oid; */
   
 };
@@ -99,7 +97,6 @@ gpio_pps_modevent(module_t mod __unused, int event, void* arg __unused)
 static void
 gpio_pps_identify(driver_t *driver, device_t bus)
 {
-  /*   device_t dev; */
   phandle_t node, root, child;
   device_printf(bus, "gpio_pps_identify called\n");
   
@@ -121,17 +118,7 @@ gpio_pps_identify(driver_t *driver, device_t bus)
         continue;
     }
   }
-
-  /*
-    dev = device_find_child(bus, GPIOPPS_NAME, -1);
-    if (!dev) {
-    dev = BUS_ADD_CHILD(bus, 0, GPIOPPS_NAME, -1);
-    if (dev) {
-    }
-    
-  */
   device_printf(bus, "gpio_pps_identify: bus added\n");
-  
 }
 
 static int
@@ -187,6 +174,9 @@ static int pps_count = 0;
 static void
 gpio_pps_intr(void * arg)
 {
+  struct gpio_pps_softc *sc = arg;  
+  pps_capture(&(sc->sc_pps));
+  pps_event(&(sc->sc_pps), PPS_CAPTUREASSERT);    
   pps_count++;
 }
 
@@ -201,31 +191,21 @@ gpio_pps_attach(device_t dev)
 	sc->sc_busdev = device_get_parent(dev);
         sc->sc_irq_rid = 0;
 
-        /*        sc->sc_gpio_intr = devclass_get_device(devclass_find("gpio"), 0); */
-        sc->sc_gpio_intr = sc->sc_dev;
-        device_printf(dev, "Using  MOI as the busdev\n");
-
-        GPIOPPS_LOCK_INIT(sc);            
-
-        if (!sc->sc_gpio_intr) {
-          device_printf(dev, "Unable to find gpio_intr device...");
-          return ENXIO;
-        }
+        pps_init_abi(&(sc->sc_pps));
         
-        device_printf(dev, "found the gpio device...");
-        /*	int state; */
+        GPIOPPS_LOCK_INIT(sc);            
 
         GPIOPPS_LOCK(sc);
 
         /* Worked with gpio_intr. Try with busdev */
-        if (BUS_CONFIG_INTR(sc->sc_gpio_intr, GPIOPPS_PIN, INTR_TRIGGER_EDGE, INTR_POLARITY_HIGH)) {
+        if (BUS_CONFIG_INTR(sc->sc_dev, GPIOPPS_PIN, INTR_TRIGGER_EDGE, INTR_POLARITY_HIGH)) {
           GPIOPPS_UNLOCK(sc);
           device_printf(dev, "Unable to configure the interrupt...\n");
           return ENXIO;
         }
 
         /* Try with gpio object... Still strays? */
-        sc->sc_intr_resource = bus_alloc_resource(sc->sc_gpio_intr,  SYS_RES_IRQ, &(sc->sc_irq_rid), 
+        sc->sc_intr_resource = bus_alloc_resource(sc->sc_dev,  SYS_RES_IRQ, &(sc->sc_irq_rid), 
                                                                                GPIOPPS_PIN, GPIOPPS_PIN, 1, RF_ACTIVE);
 
         if (!sc->sc_intr_resource) {
@@ -236,28 +216,28 @@ gpio_pps_attach(device_t dev)
 
         if (rman_adjust_resource(sc->sc_intr_resource, GPIOPPS_PIN, GPIOPPS_PIN)) {
           uprintf("Adjustment failed\n");
-          bus_release_resource(sc->sc_gpio_intr, SYS_RES_IRQ, sc->sc_irq_rid, sc->sc_intr_resource);
+          bus_release_resource(sc->sc_dev, SYS_RES_IRQ, sc->sc_irq_rid, sc->sc_intr_resource);
           GPIOPPS_UNLOCK(sc);
           return ENXIO;
         }
 
         if (rman_get_start(sc->sc_intr_resource) != GPIOPPS_PIN) {
           uprintf("Adjustment failed -- start is wrong\n");
-          bus_release_resource(sc->sc_gpio_intr, SYS_RES_IRQ, sc->sc_irq_rid, sc->sc_intr_resource);
+          bus_release_resource(sc->sc_dev, SYS_RES_IRQ, sc->sc_irq_rid, sc->sc_intr_resource);
           GPIOPPS_UNLOCK(sc);
           return ENXIO;
         }
 
-        error = bus_setup_intr(sc->sc_gpio_intr, sc->sc_intr_resource, INTR_TYPE_CLK, NULL,  gpio_pps_intr, sc, &(sc->sc_intr_cookie));
+        error = bus_setup_intr(sc->sc_dev, sc->sc_intr_resource, INTR_TYPE_CLK, NULL,  gpio_pps_intr, sc, &(sc->sc_intr_cookie));
         if (error) {
-          bus_release_resource(sc->sc_gpio_intr, SYS_RES_IRQ, sc->sc_irq_rid, sc->sc_intr_resource);
+          bus_release_resource(sc->sc_dev, SYS_RES_IRQ, sc->sc_irq_rid, sc->sc_intr_resource);
           device_printf(dev, "Unable to hook interrupt handler\n");
           GPIOPPS_UNLOCK(sc);
           return (error);
         }
 
-        if (bus_activate_resource(sc->sc_gpio_intr,  SYS_RES_IRQ,  sc->sc_irq_rid,  sc->sc_intr_resource)) {
-          bus_release_resource(sc->sc_gpio_intr, SYS_RES_IRQ, sc->sc_irq_rid, sc->sc_intr_resource);
+        if (bus_activate_resource(sc->sc_dev,  SYS_RES_IRQ,  sc->sc_irq_rid,  sc->sc_intr_resource)) {
+          bus_release_resource(sc->sc_dev, SYS_RES_IRQ, sc->sc_irq_rid, sc->sc_intr_resource);
           device_printf(dev, "Unable to activate interrupt handler\n");
           GPIOPPS_UNLOCK(sc);
           return ENXIO;
@@ -276,8 +256,8 @@ gpio_pps_detach(device_t dev)
 	sc = device_get_softc(dev);
         if (sc->sc_intr_resource) {
           GPIOPPS_LOCK(sc);
-          bus_deactivate_resource(sc->sc_gpio_intr,  SYS_RES_IRQ,  sc->sc_irq_rid,  sc->sc_intr_resource);
-          bus_teardown_intr(sc->sc_gpio_intr, sc->sc_intr_resource, sc->sc_intr_cookie);
+          bus_deactivate_resource(sc->sc_dev,  SYS_RES_IRQ,  sc->sc_irq_rid,  sc->sc_intr_resource);
+          bus_teardown_intr(sc->sc_dev, sc->sc_intr_resource, sc->sc_intr_cookie);
           bus_release_resource(dev, SYS_RES_IRQ, sc->sc_irq_rid, sc->sc_intr_resource);
           GPIOPPS_UNLOCK(sc);          
         }
