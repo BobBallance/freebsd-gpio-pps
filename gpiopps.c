@@ -47,7 +47,6 @@
 #define	GPIOPPS_PIN	18
 #define   GPIOPPS_NAME "gpiopps"
 #define	PPS_NAME "pps"
-#define   CDEV 1
 
 #define GPIOPPS_LOCK(_sc)		mtx_lock(&(_sc)->sc_mtx)
 #define	GPIOPPS_UNLOCK(_sc)		mtx_unlock(&(_sc)->sc_mtx)
@@ -82,7 +81,6 @@ static	d_close_t	gpiopps_close;
 static	d_ioctl_t	        gpiopps_ioctl;
 
 
-#ifdef CDEV
 static struct cdevsw pps_cdevsw = {
 	.d_version =	D_VERSION,
 	.d_open =	gpiopps_open,
@@ -90,29 +88,8 @@ static struct cdevsw pps_cdevsw = {
 	.d_ioctl =	gpiopps_ioctl,
 	.d_name =	PPS_NAME,
 };
-#endif
 
 
-#ifdef PURE_MODULE
-static int
-gpiopps_modevent(module_t mod __unused, int event, void* arg __unused)
-{
-  int error = 0;
-  switch(event) {
-  case MOD_LOAD:
-    uprintf("gpiopps loaded\n");
-    break;
-
-  case MOD_UNLOAD:
-        uprintf("gpiopps  unloaded\n");
-        break;
-  default:
-    error = EOPNOTSUPP;
-    break;
-  }
-  return error;
-}
-#endif
 
 static void
 gpiopps_identify(driver_t *driver, device_t bus)
@@ -211,9 +188,7 @@ gpiopps_attach(device_t dev)
 {
 	struct gpiopps_softc *sc;
         int error;
-#ifdef CDEV        
         struct cdev* c_dev;
-#endif        
 	sc = device_get_softc(dev);
 	sc->sc_dev = dev;
 	sc->sc_busdev = device_get_parent(dev);
@@ -276,21 +251,11 @@ gpiopps_attach(device_t dev)
           return (error);
         }
 
-#ifdef CDEV        
 	c_dev = make_dev(&pps_cdevsw, 0,    UID_ROOT, GID_WHEEL, 0600,  "pps%d", 0);
 
 	sc->sc_cdev = c_dev;
 	c_dev->si_drv1 = sc;
 	c_dev->si_drv2 = (void*)0;
-#else
-        if (bus_activate_resource(sc->sc_dev,  SYS_RES_IRQ,  sc->sc_irq_rid,  sc->sc_intr_resource)) {
-          bus_release_resource(sc->sc_dev, SYS_RES_IRQ, sc->sc_irq_rid, sc->sc_intr_resource);
-          device_printf(dev, "Unable to activate interrupt handler\n");
-          GPIOPPS_UNLOCK(sc);
-          return ENXIO;
-        }
-#endif
-
         GPIOPPS_UNLOCK(sc);        
         device_printf(dev, "gpiopps_attach completes\n");
 	return (0);
@@ -343,9 +308,6 @@ gpiopps_detach(device_t dev)
         if (sc->sc_intr_resource) {
           GPIOPPS_LOCK(sc);
 
-#ifndef  CDEV
-          bus_deactivate_resource(sc->sc_dev,  SYS_RES_IRQ,  sc->sc_irq_rid,  sc->sc_intr_resource);
-#endif
           bus_teardown_intr(sc->sc_dev, sc->sc_intr_resource, sc->sc_intr_cookie);
           bus_release_resource(dev, SYS_RES_IRQ, sc->sc_irq_rid, sc->sc_intr_resource);
 
@@ -366,16 +328,6 @@ gpiopps_detach(device_t dev)
 
 static devclass_t gpiopps_devclass;
 
-#ifdef PURE_MODULE
-static moduledata_t gpiopps_mod = {
-  GPIOPPS_NAME,
-  gpiopps_modevent,
-  NULL
-};
-
-
- DECLARE_MODULE(gpiopps, gpiopps_mod, SI_SUB_DRIVERS, SI_ORDER_MIDDLE);
-#endif
 
 static device_method_t gpiopps_methods[] = {
 	/* Device interface */
@@ -395,6 +347,5 @@ static driver_t gpiopps_driver = {
 
 /* This kills the kernel if you make it a child of gpio */
 DRIVER_MODULE(gpiopps,  gpiobus,   gpiopps_driver, gpiopps_devclass, 0, 0);
-/* MODULE_DEPEND(gpiopps, gpiobus, 1, 1, 1); */
 
 
