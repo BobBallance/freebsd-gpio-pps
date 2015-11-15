@@ -10,8 +10,8 @@ KERNCONF = RPI2_DEV
 XCOMPILE_TARGET=arm.armv6
 CROCHET_OBJ=$(CROCHET_DIR)/work/obj/$(XCOMPILE_TARGET)/$(FREEBSD_SRC)/sys/$(KERNCONF)
 
-KMOD = gpio_pps
-SRCS = gpio_pps.c
+KMOD = gpiopps
+SRCS = gpiopps.c
 
 CFLAGS+= -I$(FREEBSD_SRC)/sys  -I$(CROCHET_OBJ)
 
