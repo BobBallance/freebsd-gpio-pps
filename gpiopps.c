@@ -1,7 +1,7 @@
 /* ----------------------------------------------------------------------------
  * Copyright (c) Bob Ballance 2015
  * 
- * gpio_pps.c -			Cr
+ * gpiopps.c -	       
  * 
  * gpio interrupt handler for PPS signals
  * 
@@ -40,20 +40,23 @@
 #include <dev/gpio/gpiobusvar.h>
 
 #include <sys/rman.h>
+#include <sys/conf.h>
 
 #include "gpiobus_if.h"
 
 #define	GPIOPPS_PIN	18
-#define   GPIOPPS_NAME "gpio_pps"
+#define   GPIOPPS_NAME "gpiopps"
+#define	PPS_NAME "pps"
+#define   CDEV 1
 
 #define GPIOPPS_LOCK(_sc)		mtx_lock(&(_sc)->sc_mtx)
 #define	GPIOPPS_UNLOCK(_sc)		mtx_unlock(&(_sc)->sc_mtx)
 #define GPIOPPS_LOCK_INIT(_sc) \
-	mtx_init(&_sc->sc_mtx, device_get_nameunit(_sc->sc_dev), \
-	    GPIOPPS_NAME, MTX_DEF)
+  mtx_init(&_sc->sc_mtx, device_get_nameunit(_sc->sc_dev),      \
+           GPIOPPS_NAME, MTX_DEF)
 #define GPIOPPS_LOCK_DESTROY(_sc)	mtx_destroy(&_sc->sc_mtx);
 
-struct gpio_pps_softc 
+struct gpiopps_softc 
 {
   device_t	sc_dev;
   device_t	sc_busdev;
@@ -63,28 +66,45 @@ struct gpio_pps_softc
   void *sc_intr_cookie;		/* interrupt registration cookie */
   
   struct pps_state sc_pps;        /* sio.c needs a single pps_state */
+  struct cdev * sc_cdev;
 
+  int sc_gpio_pin;
   /* struct sysctl_oid	*sc_oid; */
   
 };
 
-static int gpio_pps_probe(device_t);
-static int gpio_pps_attach(device_t);
-static int gpio_pps_detach(device_t);
+static int gpiopps_probe(device_t);
+static int gpiopps_attach(device_t);
+static int gpiopps_detach(device_t);
+
+static	d_open_t	gpiopps_open;
+static	d_close_t	gpiopps_close;
+static	d_ioctl_t	        gpiopps_ioctl;
+
+
+#ifdef CDEV
+static struct cdevsw pps_cdevsw = {
+	.d_version =	D_VERSION,
+	.d_open =	gpiopps_open,
+	.d_close =	gpiopps_close,
+	.d_ioctl =	gpiopps_ioctl,
+	.d_name =	PPS_NAME,
+};
+#endif
 
 
 #ifdef PURE_MODULE
 static int
-gpio_pps_modevent(module_t mod __unused, int event, void* arg __unused)
+gpiopps_modevent(module_t mod __unused, int event, void* arg __unused)
 {
   int error = 0;
   switch(event) {
   case MOD_LOAD:
-    uprintf("gpio_pps loaded\n");
+    uprintf("gpiopps loaded\n");
     break;
 
   case MOD_UNLOAD:
-        uprintf("gpio_pps  unloaded\n");
+        uprintf("gpiopps  unloaded\n");
         break;
   default:
     error = EOPNOTSUPP;
@@ -95,10 +115,10 @@ gpio_pps_modevent(module_t mod __unused, int event, void* arg __unused)
 #endif
 
 static void
-gpio_pps_identify(driver_t *driver, device_t bus)
+gpiopps_identify(driver_t *driver, device_t bus)
 {
   phandle_t node, root, child;
-  device_printf(bus, "gpio_pps_identify called\n");
+  device_printf(bus, "gpiopps_identify called\n");
   
   root = OF_finddevice("/");
   if (root == 0)
@@ -114,15 +134,15 @@ gpio_pps_identify(driver_t *driver, device_t bus)
       if (!OF_hasprop(child, "gpios"))
         continue;
       if (ofw_gpiobus_add_fdt_child(bus, driver->name, child) == NULL)
-        printf("gpio_pps_identify: FDT child added\n");
+        printf("gpiopps_identify: FDT child added\n");
         continue;
     }
   }
-  device_printf(bus, "gpio_pps_identify: bus added\n");
+  device_printf(bus, "gpiopps_identify: bus added\n");
 }
 
 static int
-gpio_pps_probe(device_t dev)
+gpiopps_probe(device_t dev)
 {
 	int match;
 	phandle_t node;
@@ -169,44 +189,62 @@ gpio_pps_probe(device_t dev)
 	return (0);
 }
 
+
+
+#ifdef GPIOPPS_COUNT
 static int pps_count = 0;
+#endif
 
 static void
-gpio_pps_intr(void * arg)
+gpiopps_intr(void * arg)
 {
-  struct gpio_pps_softc *sc = arg;  
+  struct gpiopps_softc *sc = arg;  
   pps_capture(&(sc->sc_pps));
   pps_event(&(sc->sc_pps), PPS_CAPTUREASSERT);    
+#ifdef GPIOPPS_COUNT
   pps_count++;
+#endif
 }
 
 static int
-gpio_pps_attach(device_t dev)
+gpiopps_attach(device_t dev)
 {
-	struct gpio_pps_softc *sc;
+	struct gpiopps_softc *sc;
         int error;
-        
+#ifdef CDEV        
+        struct cdev* c_dev;
+#endif        
 	sc = device_get_softc(dev);
 	sc->sc_dev = dev;
 	sc->sc_busdev = device_get_parent(dev);
         sc->sc_irq_rid = 0;
 
-        pps_init_abi(&(sc->sc_pps));
         
+        sc->sc_pps.ppscap = PPS_CAPTUREASSERT;
+        pps_init_abi(&(sc->sc_pps));
         GPIOPPS_LOCK_INIT(sc);            
 
+        /* hint.gpiopps.0.pin=x */
+        error = resource_int_value("gpiopps", 0,  "pin", &sc->sc_gpio_pin);
+        if (error) {
+          sc->sc_gpio_pin = GPIOPPS_PIN;
+          device_printf(sc->sc_dev, "Device hint returned %s (%d)\n",
+                        error == ENOENT ? "ENOENT" : "EFTYPE", error);
+        }
+        device_printf(sc->sc_dev, "Pin on GPIO %d\n", sc->sc_gpio_pin);
+        
         GPIOPPS_LOCK(sc);
 
-        /* Worked with gpio_intr. Try with busdev */
-        if (BUS_CONFIG_INTR(sc->sc_dev, GPIOPPS_PIN, INTR_TRIGGER_EDGE, INTR_POLARITY_HIGH)) {
+
+        if (BUS_CONFIG_INTR(sc->sc_dev, sc->sc_gpio_pin,  INTR_TRIGGER_EDGE, INTR_POLARITY_HIGH)) {
           GPIOPPS_UNLOCK(sc);
           device_printf(dev, "Unable to configure the interrupt...\n");
           return ENXIO;
         }
 
-        /* Try with gpio object... Still strays? */
+        /* Flags has to be just RF_ACTIVE for the adjustment to work */
         sc->sc_intr_resource = bus_alloc_resource(sc->sc_dev,  SYS_RES_IRQ, &(sc->sc_irq_rid), 
-                                                                               GPIOPPS_PIN, GPIOPPS_PIN, 1, RF_ACTIVE);
+                                                  sc->sc_gpio_pin, sc->sc_gpio_pin, 1, RF_ACTIVE);
 
         if (!sc->sc_intr_resource) {
           GPIOPPS_UNLOCK(sc);          
@@ -214,21 +252,23 @@ gpio_pps_attach(device_t dev)
           return ENXIO;
         }
 
-        if (rman_adjust_resource(sc->sc_intr_resource, GPIOPPS_PIN, GPIOPPS_PIN)) {
+        if (rman_adjust_resource(sc->sc_intr_resource, sc->sc_gpio_pin, sc->sc_gpio_pin)) {
           uprintf("Adjustment failed\n");
           bus_release_resource(sc->sc_dev, SYS_RES_IRQ, sc->sc_irq_rid, sc->sc_intr_resource);
           GPIOPPS_UNLOCK(sc);
           return ENXIO;
         }
 
-        if (rman_get_start(sc->sc_intr_resource) != GPIOPPS_PIN) {
-          uprintf("Adjustment failed -- start is wrong\n");
+        if (rman_get_start(sc->sc_intr_resource) != sc->sc_gpio_pin) {
+          device_printf(sc->sc_dev, "Adjustment failed -- start is wrong\n");
           bus_release_resource(sc->sc_dev, SYS_RES_IRQ, sc->sc_irq_rid, sc->sc_intr_resource);
           GPIOPPS_UNLOCK(sc);
           return ENXIO;
         }
 
-        error = bus_setup_intr(sc->sc_dev, sc->sc_intr_resource, INTR_TYPE_CLK, NULL,  gpio_pps_intr, sc, &(sc->sc_intr_cookie));
+        /* Jitter -- is it the GIANT lock, or not being a filter function? */
+        error = bus_setup_intr(sc->sc_dev, sc->sc_intr_resource, 
+                                               INTR_TYPE_CLK | INTR_MPSAFE, NULL,  gpiopps_intr, sc, &(sc->sc_intr_cookie));
         if (error) {
           bus_release_resource(sc->sc_dev, SYS_RES_IRQ, sc->sc_irq_rid, sc->sc_intr_resource);
           device_printf(dev, "Unable to hook interrupt handler\n");
@@ -236,67 +276,125 @@ gpio_pps_attach(device_t dev)
           return (error);
         }
 
+#ifdef CDEV        
+	c_dev = make_dev(&pps_cdevsw, 0,    UID_ROOT, GID_WHEEL, 0600,  "pps%d", 0);
+
+	sc->sc_cdev = c_dev;
+	c_dev->si_drv1 = sc;
+	c_dev->si_drv2 = (void*)0;
+#else
         if (bus_activate_resource(sc->sc_dev,  SYS_RES_IRQ,  sc->sc_irq_rid,  sc->sc_intr_resource)) {
           bus_release_resource(sc->sc_dev, SYS_RES_IRQ, sc->sc_irq_rid, sc->sc_intr_resource);
           device_printf(dev, "Unable to activate interrupt handler\n");
           GPIOPPS_UNLOCK(sc);
           return ENXIO;
         }
+#endif
 
         GPIOPPS_UNLOCK(sc);        
-        device_printf(dev, "gpio_pps_attach completes\n");
+        device_printf(dev, "gpiopps_attach completes\n");
 	return (0);
 }
 
 static int
-gpio_pps_detach(device_t dev)
+gpiopps_open(struct cdev* dev, int flags, int fmt, struct thread* td) 
 {
-	struct gpio_pps_softc *sc;
+  struct gpiopps_softc *sc = dev->si_drv1;
+  GPIOPPS_LOCK(sc);
+  if (bus_activate_resource(sc->sc_dev,  SYS_RES_IRQ,  sc->sc_irq_rid,  sc->sc_intr_resource)) {
+    bus_release_resource(sc->sc_dev, SYS_RES_IRQ, sc->sc_irq_rid, sc->sc_intr_resource);
+    device_printf(sc->sc_dev, "Unable to activate interrupt handler\n");
+    GPIOPPS_UNLOCK(sc);
+    return ENXIO;
+  }
+  GPIOPPS_UNLOCK(sc);
+  return (0);
+}
+
+static int
+gpiopps_close(struct cdev* dev, int flags, int fmt, struct thread* td) 
+{
+  struct gpiopps_softc *sc = dev->si_drv1;
+  if (sc->sc_intr_resource) {
+    GPIOPPS_LOCK(sc);
+    bus_deactivate_resource(sc->sc_dev,  SYS_RES_IRQ,  sc->sc_irq_rid,  sc->sc_intr_resource);
+    GPIOPPS_UNLOCK(sc);
+  }
+  return (0);
+}
+
+static int
+gpiopps_ioctl(struct cdev *dev, u_long cmd, caddr_t data, int flags, struct thread *td)
+{
+  struct gpiopps_softc *sc = dev->si_drv1;
+  int err;
+  GPIOPPS_LOCK(sc);        
+  err = pps_ioctl(cmd, data, &sc->sc_pps);
+  GPIOPPS_UNLOCK(sc);        
+  return (err);
+}
+
+static int
+gpiopps_detach(device_t dev)
+{
+	struct gpiopps_softc *sc;
 
 	sc = device_get_softc(dev);
         if (sc->sc_intr_resource) {
           GPIOPPS_LOCK(sc);
+
+#ifndef  CDEV
           bus_deactivate_resource(sc->sc_dev,  SYS_RES_IRQ,  sc->sc_irq_rid,  sc->sc_intr_resource);
+#endif
           bus_teardown_intr(sc->sc_dev, sc->sc_intr_resource, sc->sc_intr_cookie);
           bus_release_resource(dev, SYS_RES_IRQ, sc->sc_irq_rid, sc->sc_intr_resource);
+
+          if (sc->sc_cdev) {
+            destroy_dev(sc->sc_cdev);
+          }
           GPIOPPS_UNLOCK(sc);          
         }
 	GPIOPPS_LOCK_DESTROY(sc);
-        device_printf(dev, "gpio_pps_detach completes: count = %d\n", pps_count);        
+
+#ifdef GPIOPPS_COUNT
+        device_printf(dev, "gpiopps_detach completes: count = %d\n", pps_count);
+#else
+        device_printf(dev, "gpiopps_detach completes\n");
+#endif
         return 0;
 }
 
-static devclass_t gpio_pps_devclass;
+static devclass_t gpiopps_devclass;
 
 #ifdef PURE_MODULE
-static moduledata_t gpio_pps_mod = {
+static moduledata_t gpiopps_mod = {
   GPIOPPS_NAME,
-  gpio_pps_modevent,
+  gpiopps_modevent,
   NULL
 };
 
 
- DECLARE_MODULE(gpio_pps, gpio_pps_mod, SI_SUB_DRIVERS, SI_ORDER_MIDDLE);
+ DECLARE_MODULE(gpiopps, gpiopps_mod, SI_SUB_DRIVERS, SI_ORDER_MIDDLE);
 #endif
 
-static device_method_t gpio_pps_methods[] = {
+static device_method_t gpiopps_methods[] = {
 	/* Device interface */
-        DEVMETHOD(device_identify,		gpio_pps_identify),  
-	DEVMETHOD(device_probe,		gpio_pps_probe),
-	DEVMETHOD(device_attach,	gpio_pps_attach),
-	DEVMETHOD(device_detach,	gpio_pps_detach),
+        DEVMETHOD(device_identify,		gpiopps_identify),  
+	DEVMETHOD(device_probe,		gpiopps_probe),
+	DEVMETHOD(device_attach,	gpiopps_attach),
+	DEVMETHOD(device_detach,	gpiopps_detach),
 
 	{ 0, 0 }
 };
 
-static driver_t gpio_pps_driver = {
+static driver_t gpiopps_driver = {
 	GPIOPPS_NAME,
-	gpio_pps_methods,
-	sizeof(struct gpio_pps_softc),
+	gpiopps_methods,
+	sizeof(struct gpiopps_softc),
 };
 
 /* This kills the kernel if you make it a child of gpio */
-DRIVER_MODULE(gpio_pps,  gpiobus,   gpio_pps_driver, gpio_pps_devclass, 0, 0);
-/* MODULE_DEPEND(gpio_pps, gpiobus, 1, 1, 1); */
+DRIVER_MODULE(gpiopps,  gpiobus,   gpiopps_driver, gpiopps_devclass, 0, 0);
+/* MODULE_DEPEND(gpiopps, gpiobus, 1, 1, 1); */
 
 
