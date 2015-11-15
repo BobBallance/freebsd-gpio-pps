@@ -11,7 +11,7 @@ XCOMPILE_TARGET=arm.armv6
 CROCHET_OBJ=$(CROCHET_DIR)/work/obj/$(XCOMPILE_TARGET)/$(FREEBSD_SRC)/sys/$(KERNCONF)
 
 KMOD = gpiopps
-SRCS = gpiopps.c
+SRCS = src/gpiopps.c
 
 CFLAGS+= -I$(FREEBSD_SRC)/sys  -I$(CROCHET_OBJ)
 
