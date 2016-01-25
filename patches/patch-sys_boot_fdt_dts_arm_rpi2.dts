@@ -1,0 +1,19 @@
+*** sys/boot/fdt/dts/arm/rpi2.dts.orig	Thu Dec  3 04:41:56 2015
+--- sys/boot/fdt/dts/arm/rpi2.dts	Thu Dec  3 04:38:37 2015
+***************
+*** 337,342 ****
+--- 337,350 ----
+  		broadcom,depth = <0>;		/* Set by VideoCore */
+  	};
+  
++ 	/* add node for gpio-pps */
++ 	pps  {
++ 		compatible = "gpio-pps";
++ 		pps {
++ 			label = "pps";
++ 			gpios = <&gpio 4 0>;
++ 		};
++ 	};
+  
+  	leds {
+  		compatible = "gpio-leds";
