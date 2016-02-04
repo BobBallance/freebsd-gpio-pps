@@ -1,10 +1,9 @@
 # A Stratum 1 Time Server using FreeBSD, Raspberry PI-2, and GPS
 
-The core of this system is a GPS board that provides Pulse-per-Second (PPS)
-time sychronization to a FreeBSD kernel module that uses a GPIO pin
-for PPS input.
+The core contribution of this repository is a  FreeBSD kernel module that uses a GPIO pin
+to manage a Pulse-Per-Second timing signal from a GPS unit. 
 
-This solution has been tested on a Raspberry PI-2 using
+This driver has been tested on a Raspberry PI-2 using
 an [Adafruit Ultimate GPS Breakout (version 3)](https://www.adafruit.com/products/746) and also
 with the the [AdaFruit Ultimate GPS Hat](https://www.adafruit.com/products/2324). The
 "Hat" provides a nicer footprint, but requires changes in the FreeBSD boot environment to work.
