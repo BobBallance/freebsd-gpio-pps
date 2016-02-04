@@ -4,51 +4,24 @@ The core of this system is a GPS board that provides Pulse-per-Second (PPS)
 time sychronization to a FreeBSD kernel module that uses a GPIO pin
 for PPS input.
 
-This repository contains my notes and source code for crafting a
-stratum-1 time server using
+This solution has been tested on a Raspberry PI-2 using
+an [Adafruit Ultimate GPS Breakout (version 3)](https://www.adafruit.com/products/746) and also
+with the the [AdaFruit Ultimate GPS Hat](https://www.adafruit.com/products/2324). The
+"Hat" provides a nicer footprint, but requires changes in the FreeBSD boot environment to work.
 
-* FreeBSD 11.0 with the crochet build tool
-* A Raspberry PI-2,
-* An Adafruit Ultimate GPS Breakout Board that provides
-  Pulse-Per-Second outputs.
+This repository contains a FreeBSD driver for crafting a
+stratum-1 time server using:
+* [FreeBSD 11.](https://www.freebsd.org),
+* The [crochet](https://github.com/freebsd/crochet) build tool,
+* A Raspberry PI-2, 
+* A GPS board. that provides Pulse-Per-Second outputs. As noted, this has **only** been tested with a couple of Adafruit products.
+* The u-boot-rpi FreeBSD port (see `/usr/ports/sysutils/u-boot-rpi2` in the FreeBSD ports tree
+* A build environment for FreeBSD and the port.
 
-The directions here can be adjusted to another Raspberry PI, and
-should be adaptable to any GPS hardware that provides a PPS output
+The driver should be adaptable to any GPS hardware that provides a PPS output
 compatible with the PI's 3.3v GPIO input.
 
-Be sure to read through all the steps before trying to use this
-approach! 
+The documentation is in this repository's [Wiki](https://github.com/BobBallance/freebsd-gpio-pps/wiki/Home) pages.
 
-To fully implement this solution, you will also need
-
-* The FreeBSD source,
-* The crochet build tool to build the image, and
-* Source files for the U-boot boot files to manage console I/O during
-booting.
-
-## Hardware Requirements
-
-This solution is tested on a Raspberry PI-2 using
-an Adafruit Ultimate GPS Breakout Board (version 3). With minor
-changes, it should be possible to use the Adafruit Utimate GPS Shield,
-or any other GPS module that provides a Pulse-Per-Second output.
-
-[GPIO-PPS Documentation](https://github.com/BobBallance/freebsd-gpio-pps/wiki/Home)
-
-Wiring the System provides the details.
-
-## Software Requirements
-
-* FreeBSD source. This code is tested with FreeBSD 11.0 compile for
-ARMv6.
-* Crochet
-* U-boot
-* This kernel driver and configuration files.
-
-## Changes to the FDT
-
-## Changes to the boot environment
-
-## Changes to the U-BOOT environment
-
-##
+**Be sure to read through all the steps in the [FreeBSD-GPIO-PPS Documentation](https://github.com/BobBallance/freebsd-gpio-pps/wiki/Home)
+before trying to use this approach!**
