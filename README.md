@@ -33,6 +33,8 @@ an Adafruit Ultimate GPS Breakout Board (version 3). With minor
 changes, it should be possible to use the Adafruit Utimate GPS Shield,
 or any other GPS module that provides a Pulse-Per-Second output.
 
+[GPIO-PPS Documentation](https://github.com/BobBallance/freebsd-gpio-pps/wiki/Home)
+
 Wiring the System provides the details.
 
 ## Software Requirements
