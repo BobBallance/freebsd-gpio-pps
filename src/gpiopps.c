@@ -29,13 +29,6 @@
 
 #include <sys/param.h>
 
-/* Clang-style message 
-#pragma message "Overriding the FREEBSD Version Number is a Bad Idea!"
-
-#undef __FreeBSD_version
-#define __FreeBSD_version 1100075	
-*/
-
 #include <sys/systm.h>
 #include <sys/bus.h>
 #include <sys/gpio.h>
