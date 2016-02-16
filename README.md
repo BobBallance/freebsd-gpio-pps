@@ -1,6 +1,6 @@
 # A Stratum 1 Time Server using FreeBSD, Raspberry PI-2, and GPS
 
-The core contribution of this repository is a FreeBSD kernel module that uses a GPIO input
+The core contribution of this repository is a FreeBSD kernel module that enables a GPIO input
 to handle a Pulse-Per-Second timing signal from a GPS unit. 
 
 The software has been tested on a Raspberry PI-2 using
@@ -21,5 +21,3 @@ compatible with the PI's 3.3v GPIO input, but it is up to you to do the correct 
 
 **Be sure to read through all the steps in the [FreeBSD-GPIO-PPS Documentation](https://github.com/BobBallance/freebsd-gpio-pps/wiki/Home)
 before trying to use this driver!** 
-
-
