@@ -41,10 +41,10 @@ However, if you want to hard-wire the GPS serial lines, or use the “Hat” ver
 
 ##  Step-by-Step Guide
 
-The following notes assume that you already have FreeBSD running, and that you a basic knowledge of how to manage a FreeBSD installation! 
+The following notes assume that you already have FreeBSD running, and that you a basic knowledge of how to manage a FreeBSD installation! Separate files in the `doc/` directory are available, or check the [GitHub/Wiki](https://github.com/BobBallance/freebsd-gpio-pps/wiki).
 
-* Set up toc ompile FreeBSD for the PI
-* Configure `crochet`  to work in your current environment.
+* Set up to compile FreeBSD for the PI
+* Configure `crochet` to work in your current environment.
 * Make sure you can build and boot a new kernel *before* you start working on it!
 * Update the kernel configuration to support PPS signaling
 * Update the kernel device tree to define the `pps` device.
