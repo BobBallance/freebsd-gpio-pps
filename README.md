@@ -1,7 +1,7 @@
 # A Stratum 1 Time Server using FreeBSD, Raspberry PI-2, and GPS
 
 The core contribution of this repository is a FreeBSD kernel module that enables a GPIO input
-to handle a Pulse-Per-Second timing signal from a GPS unit. 
+to handle a Pulse-Per-Second timing signal from a GPS unit to create a [Stratum-1 NTP Server](http://www.endruntechnologies.com/time-server-why.htm).
 
 The software has been tested on a Raspberry PI-2 using
 an [Adafruit Ultimate GPS Breakout (version 3)](https://www.adafruit.com/products/746) and also
